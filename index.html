@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLOP Enroll — Tanda tangan</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; color: #111; background: #fff; }
+  button { display: block; width: 100%; padding: 14px; margin: 10px 0; font-size: 16px; border: none; border-radius: 10px; background: #2563eb; color: #fff; }
+  button:disabled { background: #9ca3af; }
+  pre { white-space: pre-wrap; word-break: break-all; background: #f3f4f6; padding: 10px; border-radius: 8px; font-size: 12px; }
+  input[type=text] { width: 100%; box-sizing: border-box; padding: 10px; font-size: 13px; border: 1px solid #d1d5db; border-radius: 8px; }
+  .status { font-size: 14px; margin: 8px 0; }
+  .acct { display: block; width: 100%; text-align: left; padding: 12px; margin: 6px 0; font-size: 14px; border: 1px solid #d1d5db; border-radius: 10px; background: #f9fafb; color: #111; }
+</style>
+</head>
+<body>
+<h2>FLOP Enroll — Tanda tangan</h2>
+<p class="status" id="status">Buka halaman ini di browser SubWallet (tab Browser), bukan di browser biasa.</p>
+<button id="btnChallenge">1. Ambil challenge baru</button>
+<pre id="msg" style="display:none"></pre>
+<div id="accounts"></div>
+<button id="btnSign" disabled>2. Tanda tangani dengan SubWallet</button>
+<p class="status">Signature — salin dan kirim ke Kong:</p>
+<input type="text" id="sig" readonly placeholder="—">
+<button id="btnCopySig" disabled>Salin signature</button>
+<script>
+var ADDRESS = '5CB7LGYm17UZ1qz5MiEBuHAm87khzztXVrVXdgsuVEcC1Cho';
+var message = '';
+function $(id){ return document.getElementById(id); }
+function setStatus(t){ $('status').textContent = t; }
+function strToHex(str){
+  var bytes = new TextEncoder().encode(str);
+  var hex = '0x';
+  for (var i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
+  return hex;
+}
+function findInjected(){
+  var w = window.injectedWeb3 || {};
+  if (w['subwallet-js']) return w['subwallet-js'];
+  var keys = Object.keys(w);
+  if (keys.length) return w[keys[0]];
+  return null;
+}
+$('btnChallenge').onclick = function(){
+  setStatus('Mengambil challenge...');
+  fetch('https://api.flop.network/v1/enroll/wallet/challenge?address=' + ADDRESS)
+    .then(function(res){ return res.json(); })
+    .then(function(data){
+      message = data.message;
+      $('msg').style.display = 'block';
+      $('msg').textContent = message;
+      $('btnSign').disabled = false;
+      setStatus('Challenge didapat. Berlaku 5 menit — lanjut ke langkah 2.');
+    })
+    .catch(function(e){ setStatus('Gagal ambil challenge: ' + e.message); });
+};
+$('btnSign').onclick = function(){
+  var inj = findInjected();
+  if (!inj) { setStatus('SubWallet tidak ditemukan. Buka halaman ini di browser SubWallet (tab Browser), bukan di browser biasa.'); return; }
+  setStatus('Meminta izin SubWallet...');
+  inj.enable('FLOP enroll').then(function(ext){
+    return ext.accounts.get().then(function(accounts){
+      if (!accounts || !accounts.length) { setStatus('Tidak ada akun ditemukan di SubWallet.'); return; }
+      var box = $('accounts');
+      box.innerHTML = '';
+      setStatus('Pilih akunmu (ketuk namanya):');
+      accounts.forEach(function(a){
+        var b = document.createElement('button');
+        b.className = 'acct';
+        b.textContent = (a.name || 'Akun') + ' — ' + a.address;
+        b.onclick = function(){
+          setStatus('Menandatangani dengan ' + (a.name || a.address) + '...');
+          var wrapped = '<Bytes>' + message + '</Bytes>';
+          ext.signer.signRaw({ address: a.address, data: strToHex(wrapped), type: 'bytes' })
+            .then(function(r){
+              $('sig').value = r.signature;
+              $('btnCopySig').disabled = false;
+              setStatus('Selesai! Salin signature di bawah dan kirim ke Kong.');
+            })
+            .catch(function(e){ setStatus('Gagal tanda tangan: ' + (e && e.message ? e.message : e)); });
+        };
+        box.appendChild(b);
+      });
+    });
+  }).catch(function(e){ setStatus('Gagal terhubung ke SubWallet: ' + (e && e.message ? e.message : e)); });
+};
+$('btnCopySig').onclick = function(){
+  var v = $('sig').value;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(v).then(function(){ setStatus('Signature tersalin. Kirim ke Kong.'); })
+      .catch(function(){ $('sig').focus(); $('sig').select(); setStatus('Pilih teks signature lalu tekan Salin.'); });
+  } else {
+    $('sig').focus(); $('sig').select();
+    setStatus('Teks signature sudah dipilih — tekan Salin di HP kamu.');
+  }
+};
+</script>
+</body>
+</html>
