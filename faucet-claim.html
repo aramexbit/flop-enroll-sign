@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLOP Testnet Faucet — Klaim 10 FLOP</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; color: #111; background: #fff; }
+  button { display: block; width: 100%; padding: 14px; margin: 10px 0; font-size: 16px; border: none; border-radius: 10px; background: #2563eb; color: #fff; }
+  button:disabled { background: #9ca3af; }
+  pre { white-space: pre-wrap; word-break: break-all; background: #f3f4f6; padding: 10px; border-radius: 8px; font-size: 12px; }
+  input[type=text] { width: 100%; box-sizing: border-box; padding: 10px; font-size: 13px; border: 1px solid #d1d5db; border-radius: 8px; }
+  .status { font-size: 14px; margin: 8px 0; }
+  .acct { display: block; width: 100%; text-align: left; padding: 12px; margin: 6px 0; font-size: 14px; border: 1px solid #d1d5db; border-radius: 10px; background: #f9fafb; color: #111; }
+  label { font-size: 13px; font-weight: 600; }
+</style>
+</head>
+<body>
+<h2>FLOP Testnet Faucet — Klaim 10 FLOP</h2>
+<p class="status" id="status">Buka halaman ini di browser SubWallet (tab Browser), bukan di browser biasa. Klaim ini TIDAK meminta seed phrase — hanya tanda tangan.</p>
+<button id="btnBuild">1. Buat pesan klaim (D10)</button>
+<pre id="msg" style="display:none"></pre>
+<p class="status" id="nonceLine" style="display:none"></p>
+<div id="accounts"></div>
+<button id="btnSign" disabled>2. Tanda tangani dengan SubWallet</button>
+<p class="status">Nonce — salin dan kirim ke Kong:</p>
+<input type="text" id="nonce" readonly placeholder="—">
+<button id="btnCopyNonce" disabled>Salin nonce</button>
+<p class="status">Signature — salin dan kirim ke Kong:</p>
+<input type="text" id="sig" readonly placeholder="—">
+<button id="btnCopySig" disabled>Salin signature</button>
+<script>
+var ADDRESS = '5CB7LGYm17UZ1qz5MiEBuHAm87khzztXVrVXdgsuVEcC1Cho';
+var GENESIS = '0x918abd58fb16306b30ef3886514cfaebffecb4de43e82b6f8ec4795c43cfd800';
+var message = '';
+var nonce = '';
+function $(id){ return document.getElementById(id); }
+function setStatus(t){ $('status').textContent = t; }
+function strToHex(str){
+  var bytes = new TextEncoder().encode(str);
+  var hex = '0x';
+  for (var i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
+  return hex;
+}
+function findInjected(){
+  var w = window.injectedWeb3 || {};
+  if (w['subwallet-js']) return w['subwallet-js'];
+  var keys = Object.keys(w);
+  if (keys.length) return w[keys[0]];
+  return null;
+}
+function copyText(inputId, doneMsg){
+  var el = $(inputId);
+  var v = el.value;
+  if (!v) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(v).then(function(){ setStatus(doneMsg); })
+      .catch(function(){ el.focus(); el.select(); setStatus('Pilih teks lalu tekan Salin.'); });
+  } else {
+    el.focus(); el.select();
+    setStatus('Teks sudah dipilih — tekan Salin di HP kamu.');
+  }
+}
+$('btnBuild').onclick = function(){
+  nonce = String(Date.now());
+  message = 'flop-faucet-agent/v1|' + GENESIS + '|' + ADDRESS + '|' + nonce;
+  $('msg').style.display = 'block';
+  $('msg').textContent = message;
+  $('nonceLine').style.display = 'block';
+  $('nonceLine').textContent = 'Nonce: ' + nonce;
+  $('nonce').value = nonce;
+  $('btnCopyNonce').disabled = false;
+  $('btnSign').disabled = false;
+  setStatus('Pesan klaim dibuat. Nonce baru tiap kali tombol 1 ditekan — jangan tekan dua kali untuk klaim yang sama.');
+};
+$('btnSign').onclick = function(){
+  if (!message) { setStatus('Tekan tombol 1 dulu untuk membuat pesan klaim.'); return; }
+  var inj = findInjected();
+  if (!inj) { setStatus('SubWallet tidak ditemukan. Buka halaman ini di browser SubWallet (tab Browser), bukan di browser biasa.'); return; }
+  setStatus('Meminta izin SubWallet...');
+  inj.enable('FLOP faucet claim').then(function(ext){
+    return ext.accounts.get().then(function(accounts){
+      if (!accounts || !accounts.length) { setStatus('Tidak ada akun ditemukan di SubWallet.'); return; }
+      var box = $('accounts');
+      box.innerHTML = '';
+      setStatus('Pilih akunmu (ketuk namanya) — harus akun 5CB7...C1Cho:');
+      accounts.forEach(function(a){
+        var b = document.createElement('button');
+        b.className = 'acct';
+        b.textContent = (a.name || 'Akun') + ' — ' + a.address;
+        b.onclick = function(){
+          if (a.address !== ADDRESS) { setStatus('Akun ini bukan 5CB7...C1Cho. Pilih akun yang benar.'); return; }
+          setStatus('Menandatangani dengan ' + (a.name || a.address) + '...');
+          var wrapped = '<Bytes>' + message + '</Bytes>';
+          ext.signer.signRaw({ address: a.address, data: strToHex(wrapped), type: 'bytes' })
+            .then(function(r){
+              $('sig').value = r.signature;
+              $('btnCopySig').disabled = false;
+              setStatus('Selesai! Salin NONCE dan SIGNATURE di bawah, kirim keduanya ke Kong.');
+            })
+            .catch(function(e){ setStatus('Gagal tanda tangan: ' + (e && e.message ? e.message : e)); });
+        };
+        box.appendChild(b);
+      });
+    });
+  }).catch(function(e){ setStatus('Gagal terhubung ke SubWallet: ' + (e && e.message ? e.message : e)); });
+};
+$('btnCopyNonce').onclick = function(){ copyText('nonce', 'Nonce tersalin. Kirim ke Kong.'); };
+$('btnCopySig').onclick = function(){ copyText('sig', 'Signature tersalin. Kirim ke Kong.'); };
+</script>
+</body>
+</html>
