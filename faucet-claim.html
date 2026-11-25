@@ -29,6 +29,8 @@
 <p class="status">Signature — salin dan kirim ke Kong:</p>
 <input type="text" id="sig" readonly placeholder="—">
 <button id="btnCopySig" disabled>Salin signature</button>
+<button id="btnSend" disabled>3. Kirim klaim langsung dari HP (lewati IP server)</button>
+<pre id="result" style="display:none"></pre>
 <script>
 var ADDRESS = '5CB7LGYm17UZ1qz5MiEBuHAm87khzztXVrVXdgsuVEcC1Cho';
 var GENESIS = '0x918abd58fb16306b30ef3886514cfaebffecb4de43e82b6f8ec4795c43cfd800';
@@ -96,7 +98,8 @@ $('btnSign').onclick = function(){
             .then(function(r){
               $('sig').value = r.signature;
               $('btnCopySig').disabled = false;
-              setStatus('Selesai! Salin NONCE dan SIGNATURE di bawah, kirim keduanya ke Kong.');
+              $('btnSend').disabled = false;
+              setStatus('Selesai! Salin NONCE dan SIGNATURE di bawah, kirim keduanya ke Kong — atau tekan tombol 3 untuk kirim langsung dari HP.');
             })
             .catch(function(e){ setStatus('Gagal tanda tangan: ' + (e && e.message ? e.message : e)); });
         };
@@ -107,6 +110,26 @@ $('btnSign').onclick = function(){
 };
 $('btnCopyNonce').onclick = function(){ copyText('nonce', 'Nonce tersalin. Kirim ke Kong.'); };
 $('btnCopySig').onclick = function(){ copyText('sig', 'Signature tersalin. Kirim ke Kong.'); };
+$('btnSend').onclick = function(){
+  var sig = $('sig').value;
+  if (!sig || !nonce) { setStatus('Tanda tangan dulu (langkah 2).'); return; }
+  setStatus('Mengirim klaim ke faucet dari HP kamu...');
+  $('result').style.display = 'block';
+  $('result').textContent = 'Mengirim...';
+  fetch('https://faucet.flop.network/v1/testnet/agent-claims', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+    body: JSON.stringify({ address: ADDRESS, nonce: nonce, signature: sig })
+  })
+    .then(function(res){ return res.json().then(function(d){ return { status: res.status, body: d }; }); })
+    .then(function(r){
+      $('result').textContent = JSON.stringify(r.body, null, 2);
+      if (r.body && r.body.txHash) setStatus('BERHASIL! txHash: ' + r.body.txHash + ' — kirim txHash ini ke Kong.');
+      else if (r.body && r.body.error) setStatus('Faucet menolak: ' + r.body.error + ' — kirim hasil ini ke Kong.');
+      else setStatus('Respons diterima — kirim hasil ini ke Kong.');
+    })
+    .catch(function(e){ $('result').textContent = 'Gagal kirim: ' + e.message; setStatus('Gagal kirim: ' + e.message); });
+};
 </script>
 </body>
 </html>
